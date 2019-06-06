@@ -1,0 +1,97 @@
+<#
+.SYNOPSIS
+    Script will enable an Office 365 Serviceplan
+.DESCRIPTION
+    Script will enable an Office 365 Serviceplan. An Office 365 Serviceplan is functionality within a certain license.
+    For instance you can have an ENTERPRISE license that cointains SKYPE, Exchange Online and such. 
+
+    Within a (for instance) ENTERPRISE license, Serviceplans can be disabled. Whith this script, these Serviceplans can be enabled. 
+.INPUTS
+  None
+
+.OUTPUTS
+    None
+.NOTES
+  Version:        1.0
+  Author:         Bart Tacken
+  Creation Date:  22-11-2018
+  Purpose/Change: Initial script development
+.PREREQUISITES
+.EXAMPLE
+  <Example goes here. Repeat this attribute for more than one example>
+  <Example explanation goes here>
+#>
+
+$CredPath = "C:\Beheer\MSPstack\EncryptedCredentials\VBT_O365Cred.xml"
+$KeyFilePath = "C:\Beheer\MSPstack\EncryptedCredentials\VBT_O365.key"
+
+$FullLicenseName = "vbtholding:ENTERPRISEPACK" # Enter the name of the O365 powershell name of the license that contains the subplan that needs to be enabled.
+$EnableLicense = "MCOSTANDARD" # Enter here the serviceplan that needs to be enabled 
+
+Function Connect-EXOnline {
+    param($Credentials)
+    $URL = "https://ps.outlook.com/powershell"     
+    $EXOSession = New-PSSession -ConfigurationName Microsoft.Exchange -ConnectionUri $URL -Credential $Credentials -Authentication Basic -AllowRedirection -Name "Exchange Online"
+        Import-PSSession $EXOSession -AllowClobber
+}
+
+# Variables for unattended login
+$Key = Get-Content $KeyFilePath
+$credXML = Import-Clixml $CredPath #Import encrypted credential file into XML format
+$secureStringPWD = ConvertTo-SecureString -String $credXML.Password -Key $key
+$Credentials = New-Object System.Management.Automation.PsCredential($credXML.UserName, $secureStringPWD) # Create PScredential Object
+$ErrorActionPreference = 'Stop'
+
+$DisabledReferenceServicesArray = @() # Create empty array
+$DisabledReferenceServices = $Null # Reset value of variable
+$ReferenceServices = $Null # Reset value of variable
+$UPN = $Null
+
+Connect-MsolService -Credential $Credentials
+
+# Get all users
+#$AllO365Users = Get-MSOLuser -UserPrincipalName "t.user044@vbtgroep.nl" # Test
+#$AllO365Users = Get-MSOLuser | where { ($_.displayname -like "*jan*") -and ($_.islicensed -eq "TRUE")} | sort Displayname # Test
+$AllO365Users = Get-MSOLuser | where { ($_.islicensed -eq "TRUE")} | sort Displayname
+
+# Create a new license SKU definition that applies only the desired service plans. 
+# This is done by disabling the plans we don't want to apply
+# https://exitcodezero.wordpress.com/2013/03/14/how-to-assign-selective-office-365-license-options/
+
+ForEach ($User in $AllO365Users) {
+    
+    $UPN = $User | select -ExpandProperty userprincipalname
+      
+    # Get list of available services within AccountSKU
+    $ReferenceServices = (Get-MsolUser -UserPrincipalName $UPN).licenses.servicestatus
+    
+    # Create an Array of current disabled services.
+    #$DisabledReferenceServices = $ReferenceServices | where { (($_.ProvisioningStatus -ne "Success") -or ($_.ProvisioningStatus -ne "PendingProvisioning")) -and ($_.ServicePlan.ServiceName -ne "MCOSTANDARD") }
+    #$DisabledReferenceServices = $ReferenceServices | where { ($_.ProvisioningStatus -eq "Disabled") -and ($_.ServicePlan.ServiceName -ne "MCOSTANDARD") }
+    $DisabledReferenceServices = $ReferenceServices | where { ($_.ProvisioningStatus -eq "Disabled")}
+
+    # Create a new array with all disabled services but filter on the Serviceplan we want to enable
+    ForEach ($ServiceName in $($DisabledReferenceServices.serviceplan.servicename)) {
+        If ($ServiceName -ne "MCOSTANDARD") {
+            $DisabledReferenceServicesArray += $ServiceName
+        }
+    }
+    
+    # Add Sublicense that we want to add
+    write-host "Setting license for user [$UPN]" -ForegroundColor Magenta
+    
+    Try {    
+        # Create a variable for the license object that contains the needed options.
+        $LicenseOptions = New-MsolLicenseOptions -AccountSkuId $FullLicenseName -DisabledPlans $DisabledReferenceServicesArray
+
+        # To prevent errors, first remove all licenses
+        Set-MsolUserLicense -UserPrincipalName $UPN -RemoveLicenses $FullLicenseName -verbose
+
+        # Assign the license to a user
+        Set-MsolUserLicense -UserPrincipalName $UPN -AddLicenses $FullLicenseName -LicenseOptions $LicenseOptions
+    }
+    catch {
+        Write-Host "There went something wrong with the user [$UPN]"
+    }
+    
+}
