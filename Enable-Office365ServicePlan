@@ -22,10 +22,10 @@
   <Example explanation goes here>
 #>
 
-$CredPath = "C:\Beheer\MSPstack\EncryptedCredentials\VBT_O365Cred.xml"
-$KeyFilePath = "C:\Beheer\MSPstack\EncryptedCredentials\VBT_O365.key"
+$CredPath = "C:\Beheer\Cred.xml"
+$KeyFilePath = "C:\Beheer\O365.key"
 
-$FullLicenseName = "vbtholding:ENTERPRISEPACK" # Enter the name of the O365 powershell name of the license that contains the subplan that needs to be enabled.
+$FullLicenseName = ":ENTERPRISEPACK" # Enter the name of the O365 powershell name of the license that contains the subplan that needs to be enabled.
 $EnableLicense = "MCOSTANDARD" # Enter here the serviceplan that needs to be enabled 
 
 Function Connect-EXOnline {
@@ -50,8 +50,6 @@ $UPN = $Null
 Connect-MsolService -Credential $Credentials
 
 # Get all users
-#$AllO365Users = Get-MSOLuser -UserPrincipalName "t.user044@vbtgroep.nl" # Test
-#$AllO365Users = Get-MSOLuser | where { ($_.displayname -like "*jan*") -and ($_.islicensed -eq "TRUE")} | sort Displayname # Test
 $AllO365Users = Get-MSOLuser | where { ($_.islicensed -eq "TRUE")} | sort Displayname
 
 # Create a new license SKU definition that applies only the desired service plans. 
